@@ -13,7 +13,6 @@ import (
 
 	btd "github.com/privacypass/challenge-bypass-server"
 	"github.com/privacypass/challenge-bypass-server/crypto"
-	"github.com/privacypass/challenge-bypass-server/metrics"
 )
 
 var DefaultServer = &Server{
@@ -72,10 +71,6 @@ func (c *Server) ListenAndServe() error {
 	errLog.Printf("listening on %s", addr)
 
 	// Initialize prometheus endpoint
-	metricsAddr := fmt.Sprintf("%s:%d", c.BindAddress, c.MetricsPort)
-	go func() {
-		metrics.RegisterAndListen(metricsAddr, errLog)
-	}()
 
 	// Log errors without killing the entire server
 	errorChannel := make(chan error)
@@ -92,7 +87,6 @@ func (c *Server) ListenAndServe() error {
 
 // return nil to exit without complaint, caller closes
 func (c *Server) handle(conn *net.TCPConn) error {
-	metrics.CounterConnections.Inc()
 
 	// This is directly in the user's path, an overly slow connection should just fail
 	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
@@ -106,7 +100,6 @@ func (c *Server) handle(conn *net.TCPConn) error {
 		if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "i/o timeout" && buf.Len() > 0 {
 			// then probably we just hit the read deadline, so try to unwrap anyway
 		} else {
-			metrics.CounterConnErrors.Inc()
 			return err
 		}
 	}
@@ -116,36 +109,29 @@ func (c *Server) handle(conn *net.TCPConn) error {
 
 	err = json.Unmarshal(buf.Bytes(), &wrapped)
 	if err != nil {
-		metrics.CounterJsonError.Inc()
 		return err
 	}
 	err = json.Unmarshal(wrapped.Request, &request)
 	if err != nil {
-		metrics.CounterJsonError.Inc()
 		return err
 	}
 
 	switch request.Type {
 	case btd.ISSUE:
-		metrics.CounterIssueTotal.Inc()
 		err = btd.HandleIssue(conn, request, c.signKey, c.keyVersion, c.G, c.H, c.MaxTokens)
 		if err != nil {
-			metrics.CounterIssueError.Inc()
 			return err
 		}
 		return nil
 	case btd.REDEEM:
-		metrics.CounterRedeemTotal.Inc()
 		err = btd.HandleRedeem(conn, request, wrapped.Host, wrapped.Path, c.redeemKeys)
 		if err != nil {
-			metrics.CounterRedeemError.Inc()
 			conn.Write([]byte(err.Error())) // anything other than "success" counts as a VERIFY_ERROR
 			return err
 		}
 		return nil
 	default:
 		errLog.Printf("unrecognized request type \"%s\"", request.Type)
-		metrics.CounterUnknownRequestType.Inc()
 		return ErrUnrecognizedRequest
 	}
 }
@@ -195,7 +181,6 @@ func (c *Server) serve(listener *net.TCPListener, errorChannel chan error) error
 			}
 		}
 		if err != nil {
-			metrics.CounterConnErrors.Inc()
 			errorChannel <- err
 			continue
 		}

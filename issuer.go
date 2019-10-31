@@ -9,7 +9,6 @@ import (
 	"net"
 
 	"github.com/privacypass/challenge-bypass-server/crypto"
-	"github.com/privacypass/challenge-bypass-server/metrics"
 )
 
 var (
@@ -143,13 +142,11 @@ func RedeemToken(req BlindTokenRequest, host, path []byte, keys [][]byte) error 
 	}
 
 	if !valid {
-		metrics.CounterRedeemErrorVerify.Inc()
 		return fmt.Errorf("%s, host: %s, path: %s, token: %v, request_binder: %v", ErrInvalidMAC.Error(), host, path, new(big.Int).SetBytes(token), new(big.Int).SetBytes(requestBinder))
 	}
 
 	doubleSpent := SpentTokens.CheckToken(token)
 	if doubleSpent {
-		metrics.CounterDoubleSpend.Inc()
 		return ErrDoubleSpend
 	}
 
@@ -167,12 +164,10 @@ func RedeemToken(req BlindTokenRequest, host, path []byte, keys [][]byte) error 
 // Return nil on success, caller closes the connection.
 func HandleIssue(conn *net.TCPConn, req BlindTokenRequest, key []byte, keyVersion string, G, H *crypto.Point, maxTokens int) error {
 	if req.Type != ISSUE {
-		metrics.CounterIssueErrorFormat.Inc()
 		return ErrUnexpectedRequestType
 	}
 	tokenCount := len(req.Contents)
 	if tokenCount > maxTokens {
-		metrics.CounterIssueErrorFormat.Inc()
 		return ErrTooManyTokens
 	}
 
@@ -195,7 +190,6 @@ func HandleIssue(conn *net.TCPConn, req BlindTokenRequest, key []byte, keyVersio
 	// write back as "[b64 blob]" since the extension expects them formatted as
 	// "signatures=[b64 blob]" in the HTTP response body
 	conn.Write(base64Envelope)
-	metrics.CounterIssueSuccess.Inc()
 	return nil
 }
 
@@ -209,11 +203,9 @@ func HandleIssue(conn *net.TCPConn, req BlindTokenRequest, key []byte, keyVersio
 // caller closes the connection.
 func HandleRedeem(conn *net.TCPConn, req BlindTokenRequest, host, path string, keys [][]byte) error {
 	if req.Type != REDEEM {
-		metrics.CounterRedeemErrorFormat.Inc()
 		return ErrUnexpectedRequestType
 	}
 	if len(req.Contents) < 2 {
-		metrics.CounterRedeemErrorFormat.Inc()
 		return ErrTooFewRedemptionArguments
 	}
 
@@ -229,6 +221,5 @@ func HandleRedeem(conn *net.TCPConn, req BlindTokenRequest, host, path string, k
 	}
 
 	conn.Write([]byte("success"))
-	metrics.CounterRedeemSuccess.Inc()
 	return nil
 }
