@@ -87,53 +87,42 @@ func (c *Server) ListenAndServe() error {
 
 // return nil to exit without complaint, caller closes
 func (c *Server) handle(conn *net.TCPConn) error {
-
-	// This is directly in the user's path, an overly slow connection should just fail
-	conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-
 	// Read the request but never more than a worst-case assumption
-	var buf = new(bytes.Buffer)
+	buf := &bytes.Buffer{}
 	limitedConn := io.LimitReader(conn, maxRequestSize)
-	_, err := io.Copy(buf, limitedConn)
-
-	if err != nil {
-		if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "i/o timeout" && buf.Len() > 0 {
-			// then probably we just hit the read deadline, so try to unwrap anyway
-		} else {
-			return err
+	if _, err := io.Copy(buf, limitedConn); err != nil {
+		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() && buf.Len() > 0 {
 		}
 	}
 
 	var wrapped btd.BlindTokenRequestWrapper
-	var request btd.BlindTokenRequest
-
-	err = json.Unmarshal(buf.Bytes(), &wrapped)
-	if err != nil {
+	if err := json.Unmarshal(buf.Bytes(), &wrapped); err != nil {
 		return err
 	}
-	err = json.Unmarshal(wrapped.Request, &request)
-	if err != nil {
+
+	var request btd.BlindTokenRequest
+	if err := json.Unmarshal(wrapped.Request, &request); err != nil {
 		return err
 	}
 
 	switch request.Type {
 	case btd.ISSUE:
-		err = btd.HandleIssue(conn, request, c.signKey, c.keyVersion, c.G, c.H, c.MaxTokens)
+		err := btd.HandleIssue(conn, request, c.signKey, c.keyVersion, c.G, c.H, c.MaxTokens)
 		if err != nil {
 			return err
 		}
-		return nil
 	case btd.REDEEM:
-		err = btd.HandleRedeem(conn, request, wrapped.Host, wrapped.Path, c.redeemKeys)
+		err := btd.HandleRedeem(conn, request, wrapped.Host, wrapped.Path, c.redeemKeys)
 		if err != nil {
-			conn.Write([]byte(err.Error())) // anything other than "success" counts as a VERIFY_ERROR
+			// anything other than "success" counts as a VERIFY_ERROR
+			conn.Write([]byte(err.Error()))
 			return err
 		}
-		return nil
 	default:
 		errLog.Printf("unrecognized request type \"%s\"", request.Type)
 		return ErrUnrecognizedRequest
 	}
+	return nil
 }
 
 // loadKeys loads a signing key and optionally loads a file containing old keys for redemption validation
@@ -166,28 +155,16 @@ func (c *Server) loadKeys() error {
 }
 
 func (c *Server) serve(listener *net.TCPListener, errorChannel chan error) error {
-	// how long to wait for temporary net errors
-	backoffDelay := 1 * time.Millisecond
 	for {
 		tcpConn, err := listener.AcceptTCP()
-		if netErr, ok := err.(net.Error); ok {
-			if netErr.Temporary() {
-				// let's wait
-				if backoffDelay > maxBackoffDelay {
-					backoffDelay = maxBackoffDelay
-				}
-				time.Sleep(backoffDelay)
-				backoffDelay = 2 * backoffDelay
-			}
-		}
 		if err != nil {
 			errorChannel <- err
 			continue
 		}
-
-		backoffDelay = 1 * time.Millisecond
 		tcpConn.SetKeepAlive(true)
 		tcpConn.SetKeepAlivePeriod(1 * time.Minute)
+		// This is directly in the user's path, an overly slow connection should just fail
+		tcpConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 
 		go func() {
 			errorChannel <- c.handle(tcpConn)
