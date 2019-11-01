@@ -35,8 +35,7 @@ func main() {
 		return
 	}
 
-	err = srv.loadKeys()
-	if err != nil {
+	if err := srv.loadKeys(); err != nil {
 		errLog.Fatal(err)
 		return
 	}

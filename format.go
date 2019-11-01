@@ -42,11 +42,16 @@ func EncodeByteArrays(values [][]byte) ([]byte, error) {
 // DecodeByteArrays decodes JSON of the fromat produced by EncodeByteArrays.
 func DecodeByteArrays(encoded []byte) ([][]byte, error) {
 	var values [][]byte
-	err := json.Unmarshal(encoded, &values)
-	return values, err
+	if err := json.Unmarshal(encoded, &values); err != nil {
+		return nil, err
+	}
+	return values, nil
 }
 
 func MarshalRequest(request interface{}) ([]byte, error) {
-	jsonRequest, err := json.Marshal(request)
-	return jsonRequest, err
+	req, err := json.Marshal(request)
+	if err != nil {
+		return nil, err
+	}
+	return req, nil
 }

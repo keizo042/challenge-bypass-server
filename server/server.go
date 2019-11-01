@@ -22,9 +22,8 @@ var DefaultServer = &Server{
 	MaxTokens:   100,
 }
 var (
-	Version         = "dev"
-	maxBackoffDelay = 1 * time.Second
-	maxRequestSize  = int64(20 * 1024) // ~10kB is expected size for 100*base64([64]byte) + ~framing
+	Version        = "dev"
+	maxRequestSize = int64(20 * 1024) // ~10kB is expected size for 100*base64([64]byte) + ~framing
 
 	ErrEmptyKeyPath        = errors.New("key file path is empty")
 	ErrNoSecretKey         = errors.New("server config does not contain a key")
@@ -85,13 +84,33 @@ func (c *Server) ListenAndServe() error {
 	return c.serve(listener, errorChannel)
 }
 
+func (c *Server) serve(listener *net.TCPListener, errorChannel chan error) error {
+	for {
+		conn, err := listener.AcceptTCP()
+		if err != nil {
+			errorChannel <- err
+			continue
+		}
+		conn.SetKeepAlive(true)
+		conn.SetKeepAlivePeriod(1 * time.Minute)
+		// This is directly in the user's path, an overly slow connection should just fail
+		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+
+		go func() {
+			errorChannel <- c.handle(conn)
+			conn.Close()
+		}()
+	}
+}
+
 // return nil to exit without complaint, caller closes
 func (c *Server) handle(conn *net.TCPConn) error {
 	// Read the request but never more than a worst-case assumption
 	buf := &bytes.Buffer{}
-	limitedConn := io.LimitReader(conn, maxRequestSize)
-	if _, err := io.Copy(buf, limitedConn); err != nil {
+	if _, err := io.Copy(buf, io.LimitReader(conn, maxRequestSize)); err != nil {
 		if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() && buf.Len() > 0 {
+		} else {
+			return err
 		}
 	}
 
@@ -107,12 +126,22 @@ func (c *Server) handle(conn *net.TCPConn) error {
 
 	switch request.Type {
 	case btd.ISSUE:
-		err := btd.HandleIssue(conn, request, c.signKey, c.keyVersion, c.G, c.H, c.MaxTokens)
+		err := btd.HandleIssue(conn,
+			request,
+			c.signKey,
+			c.keyVersion,
+			c.G,
+			c.H,
+			c.MaxTokens)
 		if err != nil {
 			return err
 		}
 	case btd.REDEEM:
-		err := btd.HandleRedeem(conn, request, wrapped.Host, wrapped.Path, c.redeemKeys)
+		err := btd.HandleRedeem(conn,
+			request,
+			wrapped.Host,
+			wrapped.Path,
+			c.redeemKeys)
 		if err != nil {
 			// anything other than "success" counts as a VERIFY_ERROR
 			conn.Write([]byte(err.Error()))
@@ -129,7 +158,8 @@ func (c *Server) handle(conn *net.TCPConn) error {
 func (c *Server) loadKeys() error {
 	if c.SignKeyFilePath == "" {
 		return ErrEmptyKeyPath
-	} else if c.CommFilePath == "" {
+	}
+	if c.CommFilePath == "" {
 		return ErrEmptyCommPath
 	}
 
@@ -152,23 +182,4 @@ func (c *Server) loadKeys() error {
 	}
 
 	return nil
-}
-
-func (c *Server) serve(listener *net.TCPListener, errorChannel chan error) error {
-	for {
-		tcpConn, err := listener.AcceptTCP()
-		if err != nil {
-			errorChannel <- err
-			continue
-		}
-		tcpConn.SetKeepAlive(true)
-		tcpConn.SetKeepAlivePeriod(1 * time.Minute)
-		// This is directly in the user's path, an overly slow connection should just fail
-		tcpConn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-
-		go func() {
-			errorChannel <- c.handle(tcpConn)
-			tcpConn.Close()
-		}()
-	}
 }
