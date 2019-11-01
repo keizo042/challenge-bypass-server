@@ -51,7 +51,10 @@ func getClientCurveParams(contents [][]byte) (*crypto.CurveParams, error) {
 // 		- signed tokens
 // 		- a batched DLEQ proof
 // 		- a string determining the version of the key that is being used
-func ApproveTokens(req BlindTokenRequest, key []byte, keyVersion string, G, H *crypto.Point) (IssuedTokenResponse, error) {
+func ApproveTokens(req BlindTokenRequest,
+	key []byte,
+	keyVersion string,
+	G, H *crypto.Point) (IssuedTokenResponse, error) {
 	issueResponse := IssuedTokenResponse{}
 	// We only support client curve params for redemption for now
 	curveParams := &crypto.CurveParams{Curve: "p256", Hash: "sha256", Method: "increment"}
@@ -162,23 +165,28 @@ func RedeemToken(req BlindTokenRequest, host, path []byte, keys [][]byte) error 
 // encodes the new points and writes them back to the client along with a
 // batch DLEQ proof.
 // Return nil on success, caller closes the connection.
-func HandleIssue(conn *net.TCPConn, req BlindTokenRequest, key []byte, keyVersion string, G, H *crypto.Point, maxTokens int) error {
+func HandleIssue(conn *net.TCPConn,
+	req BlindTokenRequest,
+	key []byte,
+	keyVersion string,
+	G, H *crypto.Point,
+	maxTokens int) error {
 	if req.Type != ISSUE {
 		return ErrUnexpectedRequestType
 	}
-	tokenCount := len(req.Contents)
-	if tokenCount > maxTokens {
+	nTokens := len(req.Contents)
+	if nTokens > maxTokens {
 		return ErrTooManyTokens
 	}
 
 	// This also includes the dleq proof now
-	issueResponse, err := ApproveTokens(req, key, keyVersion, G, H)
+	issueances, err := ApproveTokens(req, key, keyVersion, G, H)
 	if err != nil {
 		return err
 	}
 
 	// Encodes the issue response as a JSON object
-	jsonResp, err := json.Marshal(issueResponse)
+	jsonResp, err := json.Marshal(issueances)
 	if err != nil {
 		return err
 	}
