@@ -236,12 +236,7 @@ func HandleRedeem(conn *net.TCPConn,
 		return ErrTooFewRedemptionArguments
 	}
 
-	if SpentTokens == nil {
-		SpentTokens = NewDoubleSpendList()
-	}
-
 	// transform request data here if necessary
-
 	err := RedeemToken(req, []byte(host), []byte(path), keys)
 	if err != nil {
 		return err
