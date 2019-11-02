@@ -75,8 +75,10 @@ func (obj *P256SHA256SWU) Method() string { return string(H2C_SWU) }
 func (obj *P256SHA256SWU) HashToCurve(data []byte) (*Point, error) {
 	if obj.curve != elliptic.P256() || obj.hash != crypto.SHA256 {
 		return nil, fmt.Errorf("%s for P256SHA256SWU, curve: %v, hash: %v, method %s",
-			ErrIncompatibleCurveParams.Error(), obj.curve,
-			obj.hash, obj.Method())
+			ErrIncompatibleCurveParams.Error(),
+			obj.curve,
+			obj.hash,
+			obj.Method())
 	}
 	// Compute hash-to-curve based on the contents of the "method" field
 	t, err := obj.hashToBaseField(data)
@@ -188,29 +190,26 @@ func (obj *P256SHA256Increment) HashToCurve(data []byte) (*Point, error) {
 
 	// Compute hash-to-curve based on the contents of the "method" field
 	P := &Point{Curve: obj.curve, X: nil, Y: nil}
-	byteLen := getFieldByteLength(obj.curve)
-	buf := make([]byte, byteLen+1)
+	buflen := getFieldByteLength(obj.curve)
+	buf := make([]byte, buflen+1)
 	ctr := make([]byte, 4)
 	h := obj.hash.New()
-	_, err := h.Write(obj.seed)
-	if err != nil {
+	if _, err := h.Write(obj.seed); err != nil {
 		return nil, err
 	}
 	// Obviously this is bad practise, but increasing this number rules out the probabilistic failures.
 	// I think we should implement the SWU method for encoding bytes to curves eventually.
 	for i := 0; i < INC_ITER; i++ {
 		binary.LittleEndian.PutUint32(ctr, uint32(i))
-		_, err = h.Write(data)
-		if err != nil {
+		if _, err := h.Write(data); err != nil {
 			return nil, err
 		}
-		_, err = h.Write(ctr)
-		if err != nil {
+		if _, err := h.Write(ctr); err != nil {
 			return nil, err
 		}
 
 		sum := h.Sum(nil)
-		copy(buf[1:1+byteLen], sum[:byteLen])
+		copy(buf[1:1+buflen], sum[:buflen])
 
 		buf[0] = 0x02
 		err := P.Unmarshal(obj.curve, buf)
