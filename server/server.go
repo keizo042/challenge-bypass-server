@@ -49,6 +49,8 @@ type Server struct {
 	G          *crypto.Point // elliptic curve point representation of generator G
 	H          *crypto.Point // elliptic curve point representation of commitment H to signing key
 	keyVersion string        // the version of the key that is used
+
+	errChan chan error
 }
 
 func (c *Server) ListenAndServe() error {
@@ -72,23 +74,22 @@ func (c *Server) ListenAndServe() error {
 	// Initialize prometheus endpoint
 
 	// Log errors without killing the entire server
-	errorChannel := make(chan error)
 	go func() {
-		for err := range errorChannel {
+		for err := range c.errChan {
 			if err == nil {
 				continue
 			}
 			errLog.Printf("%v", err)
 		}
 	}()
-	return c.serve(listener, errorChannel)
+	return c.serve(listener)
 }
 
-func (c *Server) serve(listener *net.TCPListener, errorChannel chan error) error {
+func (c *Server) serve(listener *net.TCPListener) error {
 	for {
 		conn, err := listener.AcceptTCP()
 		if err != nil {
-			errorChannel <- err
+			c.errChan <- err
 			continue
 		}
 		conn.SetKeepAlive(true)
@@ -97,7 +98,7 @@ func (c *Server) serve(listener *net.TCPListener, errorChannel chan error) error
 		conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 
 		go func() {
-			errorChannel <- c.handle(conn)
+			c.errChan <- c.handle(conn)
 			conn.Close()
 		}()
 	}

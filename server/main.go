@@ -58,6 +58,7 @@ func main() {
 		return
 	}
 
+	srv.errChan = make(chan error, 1)
 	if err := srv.ListenAndServe(); err != nil {
 		errLog.Fatal(err)
 		return
